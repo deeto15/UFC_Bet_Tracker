@@ -67,7 +67,6 @@ def odds_gatherer(url):
             target_button = btn
 
     if target_button:
-        print("\nClicking Prop Bets button!.\n")
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target_button)
         time.sleep(0.4)
         target_button.click()
@@ -130,7 +129,7 @@ def main():
         odds_url, winnerKV = grab_odds_links(card_url)
         winner_list = list(winnerKV.items())  # Convert to list to maintain order
         
-        print(f"Found {len(odds_url)} odds URLs and {len(winner_list)} winners")
+        #print(f"Found {len(odds_url)} odds URLs and {len(winner_list)} winners")
         
         for i, odds in enumerate(odds_url):
             if i >= len(winner_list):
@@ -138,8 +137,8 @@ def main():
                 continue
                 
             winner = winner_list[i]
-            print(f"\nProcessing: {winner[0]} ({winner[1]})")
-            print(f"URL: {odds}")
+            print(f"Processing: {winner[0]} ({winner[1]})")
+            #print(f"URL: {odds}")
             
             table = odds_gatherer(odds)
             betOnlineOnly = filterRows(table)
@@ -165,7 +164,7 @@ def main():
                 if second_value - lowest_value <= 50:
                     selected_bets.append(sorted_odds[1])
             
-            print(f"\nSelected bets for {winner[0]} ({winner[1]}):")
+            #print(f"\nSelected bets for {winner[0]} ({winner[1]}):")
             for bet, odd in selected_bets:
                 print(f"  {bet}: {odd}")
 
