@@ -1,8 +1,5 @@
-import csv
 import time
 import re
-import ast
-import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -32,26 +29,34 @@ def grab_odds_links(url):
     individual_odds_links = []
     driver = webdriver.Chrome()
     driver.get(url)
-    time.sleep(2)
+    time.sleep(5)
     rows = driver.find_elements(By.XPATH, "//table/tbody//tr")
     for row in rows:
+        # Only process rows that have "def." (completed fights)
         if "def." in row.text:
             parts = row.text.split()
             key = " ".join(parts[1:parts.index("def.")])
             list_of_keywords = ["Decision", "KO", "TKO", "Submission"]
             for keyword in list_of_keywords:
-                if keyword in parts:
+                if any(keyword in part for part in parts):
                     winnerKV[key] = keyword
-            link = row.find_element(By.XPATH, ".//a[contains(@class, 'MuiButton-root')]")
-            href = link.get_attribute("href")
-            individual_odds_links.append(href)
+                    break
+            
+            # Only get the link if this is a completed fight
+            try:
+                link = row.find_element(By.XPATH, ".//a[contains(@class, 'MuiButton-root')]")
+                href = link.get_attribute("href")
+                individual_odds_links.append(href)
+            except:
+                print(f"Warning: Could not find link for {key}")
+                
     driver.quit()
     return individual_odds_links, winnerKV
 
 def odds_gatherer(url):
     driver = webdriver.Chrome()
     driver.get(url)
-    time.sleep(5)
+    time.sleep(10)
 
     buttons = driver.find_elements(By.TAG_NAME, "button")
     target_button = None
@@ -69,7 +74,7 @@ def odds_gatherer(url):
     else:
         print("didnt click button god damnit ")
 
-    time.sleep(5)
+    time.sleep(10)
     
     final_table = []
     rows_in_header = driver.find_elements(By.XPATH, "//table/thead//tr")
@@ -95,9 +100,8 @@ def odds_gatherer(url):
                 final_table.append(row_values)
     driver.quit()
     return final_table
-odds_gatherer("https://fightodds.io/fights/arman-tsarukyan-vs-daniel-hooker-67200/odds")
 
-def test(table):
+def filterRows(table):
     best_bets = {}
     for row in table:
         key = row[0]        
@@ -119,81 +123,50 @@ def get_event_name(url):
         return "ufc-event"
       
 def main():
-    list_of_links = grab_links()
-    # Just for testing, only grab the most recent x cards
-    list_of_links = [list_of_links[5]]
+    all_cards = grab_links()
+    all_cards = [all_cards[5]]
     
-    for link in list_of_links:
-        # Get the card name
-        card_name = get_event_name(link)
-        print(f"\n{'='*60}")
-        print(f"Card: {card_name}")
-        print(f"{'='*60}\n")
+    for card_url in all_cards:
+        odds_url, winnerKV = grab_odds_links(card_url)
+        winner_list = list(winnerKV.items())  # Convert to list to maintain order
         
-        # Get all odds links for this card (winnerKV has actual results)
-        all_odds_list, winnerKV = grab_odds_links(link)
+        print(f"Found {len(odds_url)} odds URLs and {len(winner_list)} winners")
         
-        # Process each fight on the card
-        for fight_num, event in enumerate(all_odds_list, 1):
-            table = odds_gatherer(event)
-            
-            if table:
-                # Get bet data for this fight
-                bet_data = test(table)
+        for i, odds in enumerate(odds_url):
+            if i >= len(winner_list):
+                print(f"Warning: No winner info for fight {i}")
+                continue
                 
-                # Print fight header
-                print(f"\nFight {fight_num}:")
+            winner = winner_list[i]
+            print(f"\nProcessing: {winner[0]} ({winner[1]})")
+            print(f"URL: {odds}")
+            
+            table = odds_gatherer(odds)
+            betOnlineOnly = filterRows(table)
+            
+            # Remove the header row by checking the key
+            betOnlineOnly = {k: v for k, v in betOnlineOnly.items() if k != "Props"}
+            
+            if not betOnlineOnly:
+                print(f"No bets available for {winner[0]}")
+                continue
+            
+            # Sort by odds value (lowest to highest)
+            sorted_odds = sorted(betOnlineOnly.items(), key=lambda x: int(x[1].replace('+', '')))
+            
+            # Get the lowest
+            selected_bets = [sorted_odds[0]]
+            
+            # Check if second lowest is within 50 points
+            if len(sorted_odds) > 1:
+                lowest_value = int(sorted_odds[0][1].replace('+', ''))
+                second_value = int(sorted_odds[1][1].replace('+', ''))
                 
-                # Show actual result if available
-                actual_winner = None
-                for winner, method in winnerKV.items():
-                    # Check if this winner appears in the bet data
-                    for prop_name, odds_dict in bet_data.items():
-                        if winner in odds_dict:
-                            actual_winner = winner
-                            print(f"  ✓ ACTUAL RESULT: {winner} by {method}")
-                            break
-                    if actual_winner:
-                        break
-                
-                # Process and print predictions
-                print_predictions(bet_data, actual_winner)
-            else:
-                print(f"\nFight {fight_num}:")
-                print("  No odds data available")
-
-
-def print_predictions(bet_data, actual_winner=None):
-    """Process bet data and print predictions directly to console"""
-    for prop_name, odds_dict in bet_data.items():
-        if not odds_dict or len(odds_dict) < 2:
-            continue
+                if second_value - lowest_value <= 50:
+                    selected_bets.append(sorted_odds[1])
             
-        # Convert to list of tuples and sort by odds value
-        odds_list = [(fighter, odds) for fighter, odds in odds_dict.items() if odds]
-        odds_list.sort(key=lambda x: int(x[1].replace('+', '').replace('-', '')))
-        
-        # Get predictions: lowest value + one more if within 50 points
-        predictions = []
-        if odds_list:
-            first_fighter, first_odds = odds_list[0]
-            first_num = int(first_odds.replace('+', '').replace('-', ''))
-            
-            # Mark if this was the actual winner
-            marker = " ✓✓" if actual_winner and first_fighter == actual_winner else ""
-            predictions.append(f"{first_fighter}: {first_odds}{marker}")
-            
-            # Check second value
-            if len(odds_list) > 1:
-                second_fighter, second_odds = odds_list[1]
-                second_num = int(second_odds.replace('+', '').replace('-', ''))
-                if abs(second_num - first_num) <= 50:
-                    marker = " ✓✓" if actual_winner and second_fighter == actual_winner else ""
-                    predictions.append(f"{second_fighter}: {second_odds}{marker}")
-        
-        if predictions:
-            print(f"  {prop_name}: {' | '.join(predictions)}")
+            print(f"\nSelected bets for {winner[0]} ({winner[1]}):")
+            for bet, odd in selected_bets:
+                print(f"  {bet}: {odd}")
 
-
-# Run it
 main()
